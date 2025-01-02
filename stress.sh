@@ -11,6 +11,8 @@ OLD_IFS=$IFS
 FILE_GEN=gen.cpp
 FILE_ANSWER=answer.cpp
 FILE_SUBMIT=submit.cpp
+PRINT_CORRECT=0
+ATTEMPTS_LIMIT=300
 
 set -Eeuo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
@@ -30,6 +32,10 @@ A basic shell script to stress test a program.
                         (Default: answer.cpp)
     -s, --submit, --submission
                         Specify the submission file.
+    -m, --more          Print the correct output.
+                        (Default: 0)
+    -l, --limit         Specify the attmpet limit.
+                        (Default: 300)
 
     Special Options:
     --flush             Remove all cached and generated files.
@@ -73,7 +79,13 @@ parse_params() {
         FILE_SUBMIT="${2-}"
         shift
         ;;
-
+        -m | --more)
+        PRINT_CORRECT=1
+        ;;
+        -l | --limit)
+        ATTEMPTS_LIMIT="${2-}"
+        shift
+        ;;
         -?*) die "Unknown option: $1" ;;
         *) break ;;
         esac
@@ -96,30 +108,30 @@ submission_extension=$(get_extension $FILE_SUBMIT)
 
 if (( check_hash_gen != 1 )); then
     COMPILE_GEN=1
-    msg "Need to compile gen.cpp"
+    msg "Need to compile gen.cpp."
 else
-    msg "Generator already compiled"
+    msg "Generator already compiled."
 fi
 if (( check_hash_answer != 1 )); then
     COMPILE_ANSWER=1
-    msg "Need to compile answer.cpp"
+    msg "Need to compile answer.cpp."
 else
-    msg "Answer already compiled"
+    msg "Answer already compiled."
 fi
 if (( check_hash_submit != 1 )); then
     COMPILE_SUBMIT=1
-    msg "Need to compile submit.cpp"
+    msg "Need to compile submit.cpp."
 else
-    msg "Submission already compiled"
+    msg "Submission already compiled."
 fi
 
 if (( COMPILE_GEN )); then
     g++ -o $TEMP/$FILE_GEN.run -O2 -Wall -lm -static -std=c++2a -g $WORKSPACE/$FILE_GEN 2> $TEMP/compile_err 
-    msg "Compile done gen.cpp successfully"
+    msg "Compile done gen.cpp successfully."
 fi
 if (( COMPILE_ANSWER )); then
     g++ -o $TEMP/$FILE_ANSWER.run -O2 -Wall -lm -static -std=c++2a -g $WORKSPACE/$FILE_ANSWER 2> $TEMP/compile_err 
-    msg "Compile done answer.cpp successfully"
+    msg "Compile done answer.cpp successfully."
 fi
 if (( COMPILE_SUBMIT )); then
     if [[ $submission_extension == "cpp" ]]; then
@@ -134,10 +146,10 @@ if (( COMPILE_SUBMIT )); then
     elif [[ $submission_extension == "py" ]]; then
         pypy3 -c "import py_compile; py_compile.compile('$WORKSPACE/$FILE_SUBMIT')" 2> $TEMP/compile_err
     else
-        msg "Invalid extension"
+        msg "Invalid extension."
         exit 1
     fi
-    msg "Compile done submit.cpp successfully"
+    msg "Compile done submit.cpp successfully."
 fi
 
 attempts=0
@@ -168,11 +180,19 @@ while true; do
     submission_output=$(Clear_end "$submission_output")
     if [[ $answer_output == $submission_output ]]; then
         msg "Test case $attempts: ${GREEN}Accepted${NOFORMAT}"
+        if (( PRINT_CORRECT )); then
+            msg "${CYAN}Input: "; msg "$(cat $TEMP/input.txt)${NOFORMAT}"
+            msg "${YELLOW}Output: $answer_output${NOFORMAT}"
+        fi
     else
         msg "Test case $attempts: ${RED}Wrong Answer${NOFORMAT}"
         msg "${PURPLE}Input: "; msg "$(cat $TEMP/input.txt)${NOFORMAT}"
         msg "${CYAN}Expected: $answer_output${NOFORMAT}"
         msg "${YELLOW}Received: $submission_output${NOFORMAT}"
         die "Found a counter example!"
+    fi
+    if (( attempts >= ATTEMPTS_LIMIT )); then
+        msg "All test cases passed."
+        break
     fi
 done;
