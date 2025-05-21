@@ -1,1 +1,3 @@
-## Edit WORKPLACE and TEMP variables, and utils.sh path.
+PS environment setup
+---
+Hello world!

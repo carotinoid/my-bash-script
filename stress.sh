@@ -1,12 +1,108 @@
 #!/usr/bin/env bash
-. /root/boj/utils/utils.sh
 
-WORKSPACE=/root/boj/stress
-TEMP=/root/boj/stress/.stress
+msg()  {
+    echo >&2 -e "${1-}"
+}
+
+msg_n()  {
+    echo >&2 -e -n "${1-}"
+}
+
+If_exist_then_delete()  {
+    if [[ -f $1 ]]; then
+        rm $1
+    fi
+}
+Print_line()  {
+    local terminal_width=$(tput cols)
+    local message=${1-""}
+    local sep=${2-"="}
+    local message_length=${#message}
+    local total_equals=$(( (terminal_width - message_length) / 2 ))
+    if (( (terminal_width - message_length) % 2 != 0 )); then
+        total_equals=$((total_equals + 1))
+    fi
+    local post_equals=$total_equals
+    if (( total_equals + total_equals + message_length > terminal_width )); then
+        post_equals=$((total_equals - 1))
+    fi
+    printf '%*s%s%*s\n' $total_equals '' "$message" $post_equals '' | tr ' ' $sep
+}
+Erase()  {
+    for ((i=0;i<${1-1};i++)); do
+        msg_n "\b \b"
+    done
+}
+
+Clear_end()  {
+    local str=$1
+    while true; do
+        if [ "${str: -1}" = $'\n' -o "${str: -1}" = ' ' ]; then
+            str=${str%?}
+        else
+            break
+        fi
+    done
+    echo $str
+}
+
+die()  {
+    local msg=$1
+    local code=${2-1}
+    msg "$msg"
+    exit "$code"
+}
+
+setup_colors()  {
+    if [[ -t 2 ]] && [[ -z "${NO_COLOR-}" ]] && [[ "${TERM-}" != "dumb" ]]; then
+        NOFORMAT='\033[0m' RED='\033[0;31m' GREEN='\033[0;32m' ORANGE='\033[0;33m' BLUE='\033[0;34m' PURPLE='\033[0;35m' CYAN='\033[0;36m' YELLOW='\033[1;33m'
+    else
+        NOFORMAT='' RED='' GREEN='' ORANGE='' BLUE='' PURPLE='' CYAN='' YELLOW=''
+    fi
+}
+
+Check_hash()  {
+    local file_path=$1
+    local file_name=$2
+    local hash_dir=${3:-$TEMP}
+
+    mkdir -p "$hash_dir"
+
+    local file_hash=$(md5sum "$file_path"/"$file_name" | awk '{print $1}')
+    local hash_file="$file_name.hash"
+
+    if [[ -f "$hash_dir/$hash_file" ]]; then
+        local stored_hash=$(cat "$hash_dir/$hash_file")
+
+        if [[ "$file_hash" == "$stored_hash" ]]; then
+            echo "1"
+        else
+            echo "$file_hash" > "$hash_dir/$hash_file"
+            echo "2"
+        fi
+    else
+        echo "$file_hash" > "$hash_dir/$hash_file"
+        echo "0"
+    fi
+}
+
+get_extension()  {
+    local file_name=$1
+    echo "${file_name##*.}"
+}
+
+set -Eeuo pipefail
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
+
+WORKSPACE=$script_dir
+TEMP=$WORKSPACE/.stress
+SRC=$WORKSPACE/src
+
+
 COMPILE_GEN=0
 COMPILE_ANSWER=0
 COMPILE_SUBMIT=0
-VERSION=0.0.1
+VERSION=0.0.2
 OLD_IFS=$IFS
 FILE_GEN=gen.cpp
 FILE_ANSWER=answer.cpp
@@ -14,8 +110,6 @@ FILE_SUBMIT=submit.cpp
 PRINT_CORRECT=0
 ATTEMPTS_LIMIT=300
 
-set -Eeuo pipefail
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 
 usage() {
     cat <<EOF
@@ -101,9 +195,9 @@ setup_colors
 parse_params "$@"
 mkdir -p $TEMP
 
-check_hash_gen=$(Check_hash $WORKSPACE $FILE_GEN)
-check_hash_answer=$(Check_hash $WORKSPACE $FILE_ANSWER)
-check_hash_submit=$(Check_hash $WORKSPACE $FILE_SUBMIT)
+check_hash_gen=$(Check_hash $SRC $FILE_GEN)
+check_hash_answer=$(Check_hash $SRC $FILE_ANSWER)
+check_hash_submit=$(Check_hash $SRC $FILE_SUBMIT)
 submission_extension=$(get_extension $FILE_SUBMIT)
 
 if (( check_hash_gen != 1 )); then
@@ -126,25 +220,25 @@ else
 fi
 
 if (( COMPILE_GEN )); then
-    g++ -o $TEMP/$FILE_GEN.run -O2 -Wall -lm -static -std=c++2a -g $WORKSPACE/$FILE_GEN 2> $TEMP/compile_err 
+    g++ -o $TEMP/$FILE_GEN.run -O2 -Wall -lm -static -std=c++2a -g $SRC/$FILE_GEN 2> $TEMP/compile_err 
     msg "Compile done gen.cpp successfully."
 fi
 if (( COMPILE_ANSWER )); then
-    g++ -o $TEMP/$FILE_ANSWER.run -O2 -Wall -lm -static -std=c++2a -g $WORKSPACE/$FILE_ANSWER 2> $TEMP/compile_err 
+    g++ -o $TEMP/$FILE_ANSWER.run -O2 -Wall -lm -static -std=c++2a -g $SRC/$FILE_ANSWER 2> $TEMP/compile_err 
     msg "Compile done answer.cpp successfully."
 fi
 if (( COMPILE_SUBMIT )); then
     if [[ $submission_extension == "cpp" ]]; then
-        g++ -o $TEMP/$FILE_SUBMIT.run -O2 -Wall -lm -static -std=c++2a -g $WORKSPACE/$FILE_SUBMIT 2> $TEMP/compile_err 
+        g++ -o $TEMP/$FILE_SUBMIT.run -O2 -Wall -lm -static -std=c++2a -g $SRC/$FILE_SUBMIT 2> $TEMP/compile_err 
     elif [[ $submission_extension == "c" ]]; then
-        gcc -o $TEMP/$FILE_SUBMIT.run -O2 -Wall -lm -static -g $WORKSPACE/$FILE_SUBMIT 2> $TEMP/compile_err 
+        gcc -o $TEMP/$FILE_SUBMIT.run -O2 -Wall -lm -static -g $SRC/$FILE_SUBMIT 2> $TEMP/compile_err 
     elif [[ $submission_extension == "java" ]]; then
-        javac $WORKSPACE/$FILE_SUBMIT -d $TEMP
+        javac $SRC/$FILE_SUBMIT -d $TEMP
         jar cfe $TEMP/$FILE_SUBMIT.jar $FILE_SUBMIT -C $TEMP .
     elif [[ $submission_extension == "kt" ]]; then
-        kotlinc $WORKSPACE/$FILE_SUBMIT -include-runtime -d $TEMP/$FILE_SUBMIT.jar
+        kotlinc $SRC/$FILE_SUBMIT -include-runtime -d $TEMP/$FILE_SUBMIT.jar
     elif [[ $submission_extension == "py" ]]; then
-        pypy3 -c "import py_compile; py_compile.compile('$WORKSPACE/$FILE_SUBMIT')" 2> $TEMP/compile_err
+        pypy3 -c "import py_compile; py_compile.compile('$SRC/$FILE_SUBMIT')" 2> $TEMP/compile_err
     else
         msg "Invalid extension."
         exit 1
@@ -170,7 +264,7 @@ while true; do
         java -jar $TEMP/$FILE_SUBMIT.jar < $TEMP/input.txt > $TEMP/output.txt
         submission_output=$(cat $TEMP/output.txt)
     elif [[ $submission_extension == "py" ]]; then
-        pypy3 $WORKSPACE/$FILE_SUBMIT < $TEMP/input.txt > $TEMP/output.txt
+        pypy3 $SRC/$FILE_SUBMIT < $TEMP/input.txt > $TEMP/output.txt
         submission_output=$(cat $TEMP/output.txt)
     else
         msg "Invalid extension"
